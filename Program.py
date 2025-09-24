@@ -1,7 +1,9 @@
 import os
 import sys
+import argparse
 
 VFS_NAME = "vfs"
+VFS_ROOT = ""
 
 def handle_exit():
     print("Exiting shell...")
@@ -36,25 +38,73 @@ def parse_and_execute(command_line):
         # Обработка ошибки: команда не найдена
         print(f"shell: command not found: {command}")
 
-def repl_loop(): # Главная функция
+def execute_script(script_path):
+    try:
+        with open(script_path, 'r') as f:
+            for line in f:
+                # Пропускаем комментарии (строки, начинающиеся с #) и пустые строки
+                if line.strip().startswith('#') or not line.strip():
+                    continue
+
+                # Имитируем ввод пользователя
+                print(f"{VFS_NAME}> {line.strip()}")
+                parse_and_execute(line.strip())
+                
+    except FileNotFoundError:
+        print(f"shell: script not found: {script_path}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"shell: error executing script: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+def repl_loop(): # Основной цикл
     print("=== VFS started successfully ===")
+    print(f"VFS path set to: {VFS_ROOT}")
     print("Type 'exit' to quit.")
+    
     while True:
         try:
-            # Чтение ввода пользователя
             user_input = input(f"{VFS_NAME}> ")
-            
-            # Пропуск пустых строк
             if not user_input.strip():
                 continue
-            
-            # Выполнение команды
             parse_and_execute(user_input)
             
         except (EOFError, KeyboardInterrupt):
-            # Обработка Ctrl+D или Ctrl+C для выхода
             print("\nExiting shell...")
             sys.exit(0)
 
+
+def main():
+    global VFS_ROOT # Основная точка входа в приложение
+    
+    parser = argparse.ArgumentParser(description="VFS Shell Emulator")
+    parser.add_argument(
+        '-v', '--vfs-path',
+        type=str,
+        default=os.path.join(os.getcwd(), 'vfs'),
+        help="Path to the physical location of the VFS."
+    )
+    parser.add_argument(
+        '-s', '--script',
+        type=str,
+        help="Path to the startup script to execute."
+    )
+    
+    args = parser.parse_args()
+    
+    # Отладочный вывод заданных параметров
+    print("--- Debug Information ---")
+    print(f"VFS Path: {args.vfs_path}")
+    print(f"Script Path: {args.script}")
+    print("-------------------------")
+    
+    VFS_ROOT = args.vfs_path
+    
+    if args.script:
+        execute_script(args.script)
+    else:
+        repl_loop()
+
 if __name__ == "__main__":
-    repl_loop()
+    main()

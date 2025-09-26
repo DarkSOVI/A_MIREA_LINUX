@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<vfs>
+    <dir name="home">
+        <dir name="user">
+            <dir name="docs">
+                <file name="notes.txt">Da text.</file>
+            </dir>
+            <file name="profile.bin" encoding="base64">VGhpcyBpcyB0ZXN0IGJpbmFyeSBkYXRhLg==</file>
+            <file name="report.log">Log entry 1: Success. Log entry 2: Warning.</file>
+        </dir>
+    </dir>
+    <dir name="etc">
+        <file name="config.cfg">Server=local_vfs
+Port=8080</file>
+    </dir>
+    <file name="README.md"># Virtual File System
+Root file.</file>
+</vfs>

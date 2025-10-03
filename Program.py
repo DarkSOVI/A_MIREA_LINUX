@@ -3,6 +3,8 @@ import sys
 import argparse
 import xml.etree.ElementTree as ET
 import base64
+import calendar
+import datetime
 
 VFS_NAME = "vfs"
 VFS_ROOT_PATH = "" 
@@ -25,28 +27,31 @@ class VFSNode:
     def is_file(self):
         return self.type == "file"
 
-    def get_decoded_content(self):
-        """Возвращает содержимое файла, декодированное при необходимости."""
+    def get_decoded_content(self, raw=False):
+        """Возвращает содержимое файла, декодированное (или сырое, если raw=True)."""
         if self.is_dir():
             return None
         
         if self.encoding == "base64":
             try:
-                return base64.b64decode(self.content).decode('utf-8')
+                decoded_bytes = base64.b64decode(self.content)
+                if raw:
+                    return decoded_bytes 
+                return decoded_bytes.decode('utf-8')
             except Exception as e:
                 return f"!! Error decoding base64: {e} !!"
         else:
+            if raw:
+                return self.content.encode('utf-8')
             return self.content
 
 class VFS:
-    """Управление виртуальной файловой системой."""
     def __init__(self, xml_path):
         self.root = VFSNode(name="/", type="dir", content={})
         self.xml_path = xml_path
         self._load_vfs_from_xml()
 
     def _parse_element(self, element, parent_node):
-        """Рекурсивно парсит XML-элементы и строит VFS-дерево."""
         for child_element in element:
             name = child_element.attrib.get('name')
             node_type = child_element.tag
@@ -68,8 +73,6 @@ class VFS:
                 parent_node.content[name] = new_node
             
     def _load_vfs_from_xml(self):
-        """Загружает VFS из XML-файла. Гарантирует создание корня."""
-        
         try:
             tree = ET.parse(self.xml_path)
             xml_root = tree.getroot()
@@ -91,16 +94,10 @@ class VFS:
             print(f"An unexpected error occurred during VFS loading: {e}. Initializing minimal VFS.", file=sys.stderr)
             self.root = VFSNode(name="/", type="dir", content={})
 
-
     def get_node(self, path):
-        """Находит узел VFS по абсолютному или относительному пути."""
         global VFS_CWD
-
-        # Спасибо пайтон
         path_unix_style = path.replace('\\', '/')
-        
         current_path = os.path.normpath(os.path.join(VFS_CWD, path_unix_style))
-        
         current_path = current_path.replace('\\', '/')
         
         if current_path == "/":
@@ -131,8 +128,7 @@ def handle_ls(args):
     """Обновленная команда ls для работы с VFS."""
     global VFS_TREE
     
-    path = args[0] if args else "."
-    
+    path = args[0] if args else "." 
     node = VFS_TREE.get_node(path) 
     
     if node is None:
@@ -144,7 +140,8 @@ def handle_ls(args):
         print(node.get_decoded_content())
         print("--------------------")
     elif node.is_dir():
-        print(f"Directory listing for {path}:")
+        display_path = VFS_CWD if path == "." else path
+        print(f"Directory listing for {display_path}:")
         if not node.content:
             print("  (empty)")
         else:
@@ -172,6 +169,120 @@ def handle_cd(args):
         VFS_CWD = "/" + new_cwd.lstrip("/") 
         print(f"Changed directory to: {VFS_CWD}")
 
+def handle_wc(args):
+    """Реализует команду wc (word count) с поддержкой флагов -l, -w, -c."""
+    global VFS_TREE
+    
+    # Парсинг аргументов
+    show_lines = False
+    show_words = False
+    show_bytes = False
+    file_path = None
+    
+    for arg in args:
+        if arg.startswith('-'):
+            for char in arg[1:]:
+                if char == 'l':
+                    show_lines = True
+                elif char == 'w':
+                    show_words = True
+                elif char == 'c':
+                    show_bytes = True
+                else:
+                    print(f"wc: invalid option -- '{char}'")
+                    return
+        elif file_path is None:
+            file_path = arg
+        else:
+            # Поддерживается только один файл
+            print("wc: only one file argument is supported.")
+            return
+
+    if file_path is None:
+        print("wc: requires a file path.")
+        return
+
+    # Если флаги не заданы, выводим все три показателя
+    if not (show_lines or show_words or show_bytes):
+        show_lines = show_words = show_bytes = True
+
+    # 2. Доступ к VFS Node и проверки
+    node = VFS_TREE.get_node(file_path)
+    
+    if node is None:
+        print(f"wc: {file_path}: No such file or directory")
+        return
+    
+    if node.is_dir():
+        print(f"wc: {file_path}: Is a directory")
+        return
+
+    # 3. Вычисление метрик
+    try:
+        content_bytes = node.get_decoded_content(raw=True)
+        content_text = content_bytes.decode('utf-8')
+        
+        # Строки: считаем переносы + 1, если файл не пустой
+        lines = content_text.count('\n') + (1 if content_text.strip() else 0)
+        words = len(content_text.split())
+        bytes_count = len(content_bytes)
+        
+        # 4. Форматирование вывода
+        output_parts = []
+        if show_lines:
+            output_parts.append(f"{lines:7}")
+        if show_words:
+            output_parts.append(f"{words:7}")
+        if show_bytes:
+            output_parts.append(f"{bytes_count:7}")
+            
+        print(f" {' '.join(output_parts)} {file_path}")
+        
+    except Exception as e:
+        print(f"wc: error processing {file_path}: {e}")
+        
+def handle_cal(args):
+    """Реализует команду cal (calendar)."""
+    
+    now = datetime.datetime.now()
+    month = now.month
+    year = now.year
+
+    if len(args) == 1:
+        try:
+            year = int(args[0])
+            print(calendar.calendar(year))
+            return
+        except ValueError:
+            print("cal: invalid argument. Usage: cal [month] [year] or cal [year]")
+            return
+    elif len(args) == 2:
+        try:
+            # cal [месяц] [год]
+            month = int(args[0])
+            year = int(args[1])
+            if not (1 <= month <= 12):
+                raise ValueError
+            print(calendar.month(year, month))
+            return
+        except ValueError:
+            print("cal: invalid arguments. Usage: cal [month] [year]")
+            return
+    elif len(args) > 2:
+        print("cal: too many arguments. Usage: cal [month] [year] or cal [year]")
+        return
+
+    print(calendar.month(year, month))
+
+def handle_who(args):
+    """Реализует команду who (отображает, кто вошел в систему)."""
+    
+    current_user = os.getenv('USERNAME') or os.getenv('USER') or 'unknown_user'
+    tty = 'pts/0' 
+    login_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    
+    print(f"{current_user} {tty} {login_time}")
+
 def parse_and_execute(command_line):
     expanded_line = os.path.expandvars(command_line)
     parts = expanded_line.split()
@@ -184,15 +295,15 @@ def parse_and_execute(command_line):
     if command == "exit":
         handle_exit()
     elif command == "ls":
-        if VFS_TREE is None: 
-             print("shell: VFS is not initialized.")
-        else:
-            handle_ls(args)
+        handle_ls(args)
     elif command == "cd":
-        if VFS_TREE is None: 
-             print("shell: VFS is not initialized.")
-        else:
-            handle_cd(args)
+        handle_cd(args)
+    elif command == "wc":
+        handle_wc(args)
+    elif command == "cal":
+        handle_cal(args)
+    elif command == "who":
+        handle_who(args)
     else:
         print(f"shell: command not found: {command}")
 
